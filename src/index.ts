@@ -3,6 +3,9 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { tokenRoutes } from "./routes/tokens.js";
 import { swapRoutes, swapStatusRoutes } from "./routes/swap.js";
+import { kolRoutes } from "./routes/kol.js";
+import { marketRoutes } from "./routes/market.js";
+import { narrativesRoutes } from "./routes/narratives.js";
 
 const app = Fastify({ logger: true });
 
@@ -10,6 +13,9 @@ await app.register(cors);
 await app.register(tokenRoutes);
 await app.register(swapRoutes);
 await app.register(swapStatusRoutes);
+await app.register(kolRoutes);
+await app.register(marketRoutes);
+await app.register(narrativesRoutes);
 
 app.get("/health", async () => ({ status: "ok" }));
 

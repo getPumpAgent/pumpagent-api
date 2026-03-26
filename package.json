@@ -15,9 +15,12 @@
   "description": "PumpFun agent API - token discovery and swap building",
   "dependencies": {
     "@fastify/cors": "^11.2.0",
+    "@solana/web3.js": "^1.98.4",
     "axios": "^1.13.6",
     "dotenv": "^17.3.1",
-    "fastify": "^5.8.4"
+    "fastify": "^5.8.4",
+    "pino": "^10.3.1",
+    "pino-pretty": "^13.1.3"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
