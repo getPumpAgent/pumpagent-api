@@ -2,13 +2,14 @@ import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { tokenRoutes } from "./routes/tokens.js";
-import { swapRoutes } from "./routes/swap.js";
+import { swapRoutes, swapStatusRoutes } from "./routes/swap.js";
 
 const app = Fastify({ logger: true });
 
 await app.register(cors);
 await app.register(tokenRoutes);
 await app.register(swapRoutes);
+await app.register(swapStatusRoutes);
 
 app.get("/health", async () => ({ status: "ok" }));
 
