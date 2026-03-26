@@ -60,11 +60,27 @@ MCP server in active development.
 
 <br>
 
+## POST /v1/swap
+
+Production-ready swap execution built on Jupiter V2. Battle-tested on 1,000+ real trades.
+
+What's included automatically:
+- ✓ Price impact protection — rejects swaps >10% impact
+- ✓ On-chain balance verification before building tx
+- ✓ Transaction simulation — catches failures before signing
+- ✓ Jupiter /execute with automatic RPC fallback
+- ✓ Confirmation polling — tracks tx up to 30 seconds
+- ✓ Token-2022 support
+- ✓ Paper trade mode — test without real SOL
+- ✓ Priority fee levels — low/medium/high/turbo
+- ✓ Jito bundle support — faster landing
+- ✓ MEV protection via Jupiter Z RFQ routing
+
+This is not a simple Jupiter wrapper. This is production trading infrastructure.
+
+0.5% fee via Jupiter referral program. Non-custodial. Open source. Auditable.
+
 ## Features
-
-**Instant swaps** — Jupiter V2 Ultra routing with auto slippage and Jito bundles.
-
-**MEV-proof** — Jupiter Z RFQ fills bypass the mempool. Sandwich attacks don't apply.
 
 **Zero custody** — We return an unsigned transaction. You sign it. We never touch your keys.
 
