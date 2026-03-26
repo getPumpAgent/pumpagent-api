@@ -14,9 +14,9 @@ curl -X POST https://pumpapi.markets/v1/swap \
 
 <br>
 
-## For AI Agents
+## For AI Agents (Coming Soon)
 
-Drop this into your Cursor or Claude config:
+MCP server launching soon. Drop this into your Cursor or Claude config:
 
 ```json
 {
@@ -31,9 +31,11 @@ Drop this into your Cursor or Claude config:
 
 Then just ask:
 
-> *"What are the newest tokens on PumpFun right now? Buy the most promising one with 0.1 SOL"*
+> *"What are the newest PumpFun launches right now?"*
+>
+> *"Build me a swap for 0.1 SOL into [token]"*
 
-Your agent finds the token, builds the swap, and returns a sign-ready transaction. Autonomously.
+MCP server in active development.
 
 <br>
 
