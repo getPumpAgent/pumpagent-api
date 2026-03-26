@@ -7,9 +7,30 @@
 PumpFun swaps, token discovery, and MEV protection in one call. Open source. Non-custodial. Built for autonomous agents.
 
 ```bash
-curl -X POST https://pumpapi.markets/v1/swap \
+curl -X POST https://api.pumpapi.markets/v1/swap \
   -d '{"inputMint":"So1...","outputMint":"pump...","amount":1000000,"userWallet":"You..."}'
 # → unsigned tx, 0.5% fee, MEV-protected, ready to sign
+```
+
+<br>
+
+## Install
+
+```bash
+npm install getpumpagent
+```
+
+```typescript
+import { PumpAgent } from 'getpumpagent'
+
+const agent = new PumpAgent()
+const { tokens } = await agent.tokens.new()
+const swap = await agent.swap({
+  inputMint: 'So11111111111111111111111111111111111111112',
+  outputMint: 'TOKEN_ADDRESS',
+  amount: 100000000,
+  userWallet: 'YOUR_WALLET'
+})
 ```
 
 <br>
@@ -59,7 +80,7 @@ Fee wallet: [`JAL73tnR...pjKJau`](https://solscan.io/account/JAL73tnRravjWQqm7yP
 
 <br>
 
-[Docs](https://pumpapi.markets) &nbsp;&middot;&nbsp; [npm](https://www.npmjs.com/package/getpumpagent) &nbsp;&middot;&nbsp; [Twitter](https://x.com/getpumpagent)
+[Docs](https://api.pumpapi.markets) &nbsp;&middot;&nbsp; [npm](https://www.npmjs.com/package/getpumpagent) &nbsp;&middot;&nbsp; [Twitter](https://x.com/getpumpagent)
 
 <br>
 
