@@ -31,7 +31,7 @@ Drop this into your Cursor or Claude config:
 
 Then just ask:
 
-> *"Buy the top KOL token from the last 10 minutes with 0.1 SOL"*
+> *"What are the newest tokens on PumpFun right now? Buy the most promising one with 0.1 SOL"*
 
 Your agent finds the token, builds the swap, and returns a sign-ready transaction. Autonomously.
 
