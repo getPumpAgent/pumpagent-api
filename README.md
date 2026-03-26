@@ -51,11 +51,7 @@ Your agent finds the token, builds the swap, and returns a sign-ready transactio
 
 ## Pricing
 
-| | Free | Builder | Pro | Enterprise |
-|---|:---:|:---:|:---:|:---:|
-| **Rate limit** | 10/min | 120/min | 600/min | Unlimited |
-| **Swap fee** | 0.5% | 0.5% | 0.5% | 0.5% |
-| **Price** | $0 | $49/mo | $199/mo | Custom |
+Free during beta. 0.5% swap fee only.
 
 Fee wallet: [`JAL73tnR...pjKJau`](https://solscan.io/account/JAL73tnRravjWQqm7yPkw6wzhhxx9v6NZ5jNt1pjKJau). Every fee, on-chain, verifiable.
 
