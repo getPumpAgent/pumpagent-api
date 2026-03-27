@@ -1,5 +1,8 @@
 import { FastifyInstance } from "fastify";
 import axios from "axios";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("swap");
 
 const JUPITER_ULTRA_URL = "https://api.jup.ag/ultra/v1";
 
@@ -40,6 +43,14 @@ const swapSchema = {
   },
 };
 
+function getGatekeeperUrl(apiKey: string): string {
+  return `https://beta.helius-rpc.com/?api-key=${apiKey}`;
+}
+
+function getSenderEndpoint(): string {
+  return process.env.SENDER_ENDPOINT || "https://sender.helius-rpc.com/fast";
+}
+
 async function fetchJupiterOrder(
   params: Record<string, any>,
   apiKey: string,
@@ -65,15 +76,14 @@ async function fetchJupiterOrder(
     }
   }
 
-  // Unreachable, but satisfies TS
   throw new Error("Max retries exceeded");
 }
 
 async function simulateTransaction(
   transaction: string,
-  heliusRpcUrl: string,
+  rpcUrl: string,
 ): Promise<{ passed: boolean; error: any }> {
-  const { data } = await axios.post(heliusRpcUrl, {
+  const { data } = await axios.post(rpcUrl, {
     jsonrpc: "2.0",
     id: 1,
     method: "simulateTransaction",
@@ -87,11 +97,48 @@ async function simulateTransaction(
   return { passed: true, error: null };
 }
 
+async function sendViaSender(
+  transaction: string,
+  senderEndpoint: string,
+  apiKey: string,
+): Promise<{ signature: string | null; error: any }> {
+  try {
+    const url = apiKey
+      ? `${senderEndpoint}?api-key=${apiKey}`
+      : senderEndpoint;
+
+    const { data } = await axios.post(url, {
+      jsonrpc: "2.0",
+      id: "sender",
+      method: "sendTransaction",
+      params: [
+        transaction,
+        {
+          skipPreflight: true,
+          maxRetries: 0,
+          encoding: "base64",
+        },
+      ],
+    });
+
+    if (data.error) {
+      return { signature: null, error: data.error };
+    }
+
+    return { signature: data.result ?? null, error: null };
+  } catch (err: any) {
+    return { signature: null, error: err.response?.data ?? err.message };
+  }
+}
+
 export async function swapRoutes(app: FastifyInstance) {
   app.post<{ Body: SwapBody }>("/v1/swap", { schema: swapSchema }, async (req, reply) => {
     const referralAccount = process.env.REFERRAL_ACCOUNT;
     const jupiterApiKey = process.env.JUPITER_API_KEY;
-    const heliusRpcUrl = process.env.HELIUS_RPC_URL;
+    const heliusApiKey = process.env.HELIUS_API_KEY;
+    const heliusRpcUrl = heliusApiKey
+      ? getGatekeeperUrl(heliusApiKey)
+      : process.env.HELIUS_RPC_URL;
 
     if (!referralAccount) {
       return reply.status(500).send({ error: "REFERRAL_ACCOUNT not configured" });
@@ -100,7 +147,7 @@ export async function swapRoutes(app: FastifyInstance) {
       return reply.status(500).send({ error: "JUPITER_API_KEY not configured" });
     }
     if (!heliusRpcUrl) {
-      return reply.status(500).send({ error: "HELIUS_RPC_URL not configured" });
+      return reply.status(500).send({ error: "HELIUS_RPC_URL or HELIUS_API_KEY not configured" });
     }
 
     const {
@@ -134,10 +181,6 @@ export async function swapRoutes(app: FastifyInstance) {
         orderPayload.autoSlippage = true;
       }
 
-      if (jito) {
-        orderPayload.prioritizationFeeLamports = "jitoTipDefault";
-      }
-
       const { data, retryCount } = await fetchJupiterOrder(orderPayload, jupiterApiKey);
 
       if (data.error || data.errorCode) {
@@ -155,14 +198,19 @@ export async function swapRoutes(app: FastifyInstance) {
         });
       }
 
-      // Simulate the transaction before returning
-      const simulation = await simulateTransaction(data.transaction, heliusRpcUrl);
-      if (!simulation.passed) {
+      // Simulate the transaction to ensure the swap is valid
+      const baseSim = await simulateTransaction(data.transaction, heliusRpcUrl);
+      if (!baseSim.passed) {
         return reply.status(422).send({
           error: "Transaction simulation failed",
-          simulationError: simulation.error,
+          simulationError: baseSim.error,
         });
       }
+
+      // Jito routing is handled automatically by Helius Sender endpoint
+      // No manual tip injection needed — Sender routes through Jito when
+      // submitted to https://sender.helius-rpc.com/fast
+      const jitoEnabled = jito;
 
       return {
         transaction: data.transaction,
@@ -179,6 +227,9 @@ export async function swapRoutes(app: FastifyInstance) {
           referralAccount,
         },
         jito,
+        jitoEnabled,
+        tipLamports: 0,
+        senderEndpoint: getSenderEndpoint(),
         pool,
         priorityLevel,
         retryCount,
@@ -193,6 +244,88 @@ export async function swapRoutes(app: FastifyInstance) {
       });
     }
   });
+
+  // POST /v1/swap/send — Submit signed transaction via Helius Sender
+  app.post<{ Body: { transaction: string } }>(
+    "/v1/swap/send",
+    async (req, reply) => {
+      const heliusApiKey = process.env.HELIUS_API_KEY;
+      const { transaction } = req.body;
+
+      if (!transaction) {
+        return reply.status(400).send({ error: "transaction (base64) is required" });
+      }
+
+      const senderEndpoint = getSenderEndpoint();
+
+      // Try Helius Sender first
+      const senderResult = await sendViaSender(
+        transaction,
+        senderEndpoint,
+        heliusApiKey ?? "",
+      );
+
+      if (senderResult.signature) {
+        log.info({ sig: senderResult.signature }, "Sent via Helius Sender");
+        return {
+          signature: senderResult.signature,
+          method: "helius_sender",
+          endpoint: senderEndpoint,
+        };
+      }
+
+      // Fallback: submit via standard RPC sendTransaction
+      log.warn({ err: senderResult.error }, "Helius Sender failed, falling back to RPC");
+
+      const rpcUrl = heliusApiKey
+        ? getGatekeeperUrl(heliusApiKey)
+        : process.env.HELIUS_RPC_URL;
+
+      if (!rpcUrl) {
+        return reply.status(502).send({
+          error: "Helius Sender failed and no RPC fallback available",
+          senderError: senderResult.error,
+        });
+      }
+
+      try {
+        const { data } = await axios.post(rpcUrl, {
+          jsonrpc: "2.0",
+          id: "rpc-fallback",
+          method: "sendTransaction",
+          params: [
+            transaction,
+            {
+              skipPreflight: true,
+              maxRetries: 2,
+              encoding: "base64",
+            },
+          ],
+        });
+
+        if (data.error) {
+          return reply.status(502).send({
+            error: "Both Helius Sender and RPC fallback failed",
+            senderError: senderResult.error,
+            rpcError: data.error,
+          });
+        }
+
+        log.info({ sig: data.result }, "Sent via RPC fallback");
+        return {
+          signature: data.result,
+          method: "rpc_fallback",
+          endpoint: rpcUrl.replace(/api-key=[^&]+/, "api-key=***"),
+        };
+      } catch (err: any) {
+        return reply.status(502).send({
+          error: "Both Helius Sender and RPC fallback failed",
+          senderError: senderResult.error,
+          rpcError: err.response?.data ?? err.message,
+        });
+      }
+    },
+  );
 }
 
 // --- Transaction status endpoint ---
@@ -205,7 +338,11 @@ export async function swapStatusRoutes(app: FastifyInstance) {
   app.get<{ Params: StatusParams }>(
     "/v1/swap/status/:signature",
     async (req, reply) => {
-      const heliusRpcUrl = process.env.HELIUS_RPC_URL;
+      const heliusApiKey = process.env.HELIUS_API_KEY;
+      const heliusRpcUrl = heliusApiKey
+        ? getGatekeeperUrl(heliusApiKey)
+        : process.env.HELIUS_RPC_URL;
+
       if (!heliusRpcUrl) {
         return reply.status(500).send({ error: "HELIUS_RPC_URL not configured" });
       }
