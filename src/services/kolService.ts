@@ -50,20 +50,44 @@ export function getKolTier(wallet: string): "elite" | "profitable" | null {
   return kol?.tier ?? null;
 }
 
-export function getKolSignalStrength(tokenMint: string): {
+// Cache for kolscan data
+let kolscanCache: { data: any[] | null; expiry: number } = { data: null, expiry: 0 };
+
+async function fetchKolscan(): Promise<any[]> {
+  if (kolscanCache.data && Date.now() < kolscanCache.expiry) return kolscanCache.data;
+
+  const baseUrl = process.env.LORE_API_URL;
+  const apiKey = process.env.LORE_API_KEY;
+  if (!baseUrl || !apiKey) return [];
+
+  try {
+    const { data } = await axios.get(`${baseUrl}/api/market/kolscan`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      timeout: 5000,
+    });
+    const list = Array.isArray(data) ? data : [];
+    kolscanCache = { data: list, expiry: Date.now() + 30_000 };
+    return list;
+  } catch {
+    return kolscanCache.data ?? [];
+  }
+}
+
+export async function getKolSignalStrength(tokenMint: string): Promise<{
   score: number;
   eliteCount: number;
   profitableCount: number;
-} {
-  // In a full implementation, this would check on-chain for KOL buys of this token.
-  // For now, return base signal with counts from tracked wallets.
-  const eliteCount = kolList.filter((k) => k.tier === "elite").length;
-  const profitableCount = kolList.filter((k) => k.tier === "profitable").length;
+}> {
+  const kolscan = await fetchKolscan();
+  const match = kolscan.find((t: any) => t.coinMint === tokenMint);
 
-  // Score: up to 30 based on KOL activity (placeholder until real-time tracking)
-  const score = Math.min(30, Math.floor((eliteCount * 3 + profitableCount) * 0.5));
+  if (match) {
+    const kolCount = match.numKolsTraded ?? 0;
+    const score = Math.min(30, Math.floor(kolCount * 1.5));
+    return { score, eliteCount: kolCount, profitableCount: match.numHolders ?? 0 };
+  }
 
-  return { score, eliteCount, profitableCount };
+  return { score: 0, eliteCount: 0, profitableCount: 0 };
 }
 
 export async function getKolActivity(): Promise<any[]> {

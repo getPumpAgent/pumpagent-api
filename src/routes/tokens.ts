@@ -9,46 +9,79 @@ const log = createLogger("tokens");
 const PUMPFUN_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
 
 export async function tokenRoutes(app: FastifyInstance) {
-  // Existing: newest tokens
+  // Newest PumpFun token launches — fresh from Helius, no caching
   app.get("/v1/tokens/new", async (_req, reply) => {
     const rpcUrl = process.env.HELIUS_RPC_URL;
     const apiKey = process.env.HELIUS_API_KEY;
 
-    if (!rpcUrl || !apiKey) {
-      return reply.status(500).send({ error: "Helius credentials not configured" });
+    if (!apiKey) {
+      return reply.status(500).send({ error: "HELIUS_API_KEY not configured" });
     }
 
     try {
-      const { data } = await axios.post(rpcUrl, {
-        jsonrpc: "2.0",
-        id: "pump-new-tokens",
-        method: "getAssetsByAuthority",
-        params: {
-          authorityAddress: PUMPFUN_PROGRAM,
-          page: 1,
-          limit: 20,
-          sortBy: { sortBy: "created", sortDirection: "desc" },
-          displayOptions: { showFungible: true },
-        },
-      });
+      // Fetch recent CREATE transactions from the PumpFun program
+      const { data: txs } = await axios.get<any[]>(
+        `https://api.helius.xyz/v0/addresses/${PUMPFUN_PROGRAM}/transactions`,
+        { params: { "api-key": apiKey, limit: 100, type: "CREATE" } },
+      );
 
-      if (data.error) {
-        return reply.status(502).send({ error: "Helius RPC error", details: data.error });
+      // Extract unique mints with their creation timestamps
+      const mintMap = new Map<string, number>();
+      for (const tx of txs) {
+        const mint = tx.tokenTransfers?.[0]?.mint
+          ?? tx.accountData?.find((a: any) => a.account?.endsWith("pump"))?.account
+          ?? null;
+        if (mint && !mintMap.has(mint)) {
+          mintMap.set(mint, tx.timestamp);
+        }
+        if (mintMap.size >= 20) break;
       }
 
-      const tokens = (data.result?.items ?? []).map((item: any) => ({
-        mint: item.id,
-        name: item.content?.metadata?.name ?? null,
-        symbol: item.content?.metadata?.symbol ?? null,
-        uri: item.content?.json_uri ?? null,
-        image: item.content?.links?.image ?? null,
-        createdAt: item.created_at ?? null,
-      }));
+      if (!mintMap.size) {
+        return { tokens: [] };
+      }
+
+      const mints = [...mintMap.keys()];
+
+      // Batch-fetch metadata from Helius DAS
+      let metadataMap = new Map<string, any>();
+      if (rpcUrl) {
+        try {
+          const { data } = await axios.post(rpcUrl, {
+            jsonrpc: "2.0",
+            id: "pump-new-batch",
+            method: "getAssetBatch",
+            params: { ids: mints },
+          });
+          for (const item of data.result ?? []) {
+            metadataMap.set(item.id, item);
+          }
+        } catch (err: any) {
+          log.warn({ err: err.message }, "Helius metadata enrichment failed");
+        }
+      }
+
+      const nowMs = Date.now();
+      const tokens = mints.map((mint) => {
+        const asset = metadataMap.get(mint);
+        const blockTime = mintMap.get(mint)!; // Unix seconds from Helius
+        const createdAt = blockTime * 1000; // Convert to milliseconds
+        const age = Math.floor((nowMs - createdAt) / 1000);
+        return {
+          mint,
+          name: asset?.content?.metadata?.name ?? null,
+          symbol: asset?.content?.metadata?.symbol ?? null,
+          uri: asset?.content?.json_uri ?? null,
+          image: asset?.content?.links?.image ?? null,
+          createdAt,
+          age,
+        };
+      });
 
       return { tokens };
     } catch (err: any) {
       return reply.status(502).send({
-        error: "Failed to fetch tokens from Helius",
+        error: "Failed to fetch new tokens from Helius",
         message: err.message,
       });
     }
@@ -167,7 +200,7 @@ export async function tokenRoutes(app: FastifyInstance) {
           : Promise.resolve(null),
         dex.enrichTokenData(address),
         scoreTokenRisk(address),
-        Promise.resolve(getKolSignalStrength(address)),
+        getKolSignalStrength(address),
       ]);
 
       return {
@@ -205,7 +238,7 @@ export async function tokenRoutes(app: FastifyInstance) {
   app.get("/v1/tokens/:address/ohlcv", async (req, reply) => {
     const { address } = req.params as { address: string };
     const { interval } = req.query as { interval?: string };
-    const validIntervals = ["1m", "5m", "1h", "4h", "1d"];
+    const validIntervals = ["1m", "5m", "15m", "1h", "4h", "1d"];
     const iv = validIntervals.includes(interval ?? "") ? interval! : "1h";
 
     try {

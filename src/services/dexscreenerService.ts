@@ -84,12 +84,13 @@ export async function enrichTokenData(tokenAddress: string): Promise<{
   liquidity: number | null;
   priceChange24h: number | null;
   fdv: number | null;
+  pairCreatedAt: number | null;
 }> {
   const pairs = await getTokenPairs(tokenAddress);
   const pairList = Array.isArray(pairs) ? pairs : pairs?.pairs ?? [];
 
   if (!pairList.length) {
-    return { price: null, volume24h: null, liquidity: null, priceChange24h: null, fdv: null };
+    return { price: null, volume24h: null, liquidity: null, priceChange24h: null, fdv: null, pairCreatedAt: null };
   }
 
   const top = pairList[0];
@@ -99,36 +100,71 @@ export async function enrichTokenData(tokenAddress: string): Promise<{
     liquidity: top.liquidity?.usd ?? null,
     priceChange24h: top.priceChange?.h24 ?? null,
     fdv: top.fdv ?? null,
+    pairCreatedAt: top.pairCreatedAt ?? null,
   };
 }
 
 export async function getOhlcv(
   tokenAddress: string,
   interval: string = "1h"
-): Promise<any> {
+): Promise<any[]> {
   const key = `ohlcv:${tokenAddress}:${interval}`;
-  const cached = getCached(key);
+  const cached = getCached<any[]>(key);
   if (cached) return cached;
 
-  const pairs = await getTokenPairs(tokenAddress);
-  const pairList = Array.isArray(pairs) ? pairs : pairs?.pairs ?? [];
-  if (!pairList.length) return [];
+  const GECKO = "https://api.geckoterminal.com/api/v2";
 
-  const pairAddress = pairList[0].pairAddress;
-  const timeframeMap: Record<string, string> = {
-    "1m": "1",
-    "5m": "5",
-    "1h": "60",
-    "4h": "240",
-    "1d": "1440",
-  };
-
-  const tf = timeframeMap[interval] || "60";
-  const data = await dexGet<any>(
-    `/dex/chart/solana/${pairAddress}?type=candlestick&res=${tf}`
+  // Step 1: Find the top pool for this token on Solana
+  const { data: poolsResp } = await axios.get(
+    `${GECKO}/networks/solana/tokens/${tokenAddress}/pools`,
+    { params: { page: 1 } },
   );
-  setCache(key, data);
-  return data;
+  const pools = poolsResp?.data ?? [];
+  if (!pools.length) return [];
+
+  const poolAddress = pools[0].attributes.address;
+
+  // Step 2: Map interval to GeckoTerminal timeframe
+  const tfMap: Record<string, { timeframe: string; aggregate: number }> = {
+    "1m":  { timeframe: "minute", aggregate: 1 },
+    "5m":  { timeframe: "minute", aggregate: 5 },
+    "15m": { timeframe: "minute", aggregate: 15 },
+    "1h":  { timeframe: "hour",   aggregate: 1 },
+    "4h":  { timeframe: "hour",   aggregate: 4 },
+    "1d":  { timeframe: "day",    aggregate: 1 },
+  };
+  const tf = tfMap[interval] ?? tfMap["1h"];
+
+  // Step 3: Fetch OHLCV from GeckoTerminal
+  let raw: number[][] = [];
+  try {
+    const { data: ohlcvResp } = await axios.get(
+      `${GECKO}/networks/solana/pools/${poolAddress}/ohlcv/${tf.timeframe}`,
+      { params: { aggregate: tf.aggregate, limit: 300, currency: "usd" } },
+    );
+    raw = ohlcvResp?.data?.attributes?.ohlcv_list ?? [];
+  } catch {
+    // Pool exists but no candle data yet (common for very new tokens)
+    return [];
+  }
+
+  // Step 4: Format as { time, open, high, low, close, volume }
+  const candles = raw.map((c: number[]) => ({
+    time: c[0],
+    open: c[1],
+    high: c[2],
+    low: c[3],
+    close: c[4],
+    volume: c[5],
+  })).reverse(); // GeckoTerminal returns newest-first
+
+  setCache(key, candles);
+  return candles;
+}
+
+export async function getLatestSolanaTokens(): Promise<any[]> {
+  const data = await dexGet<any[]>("/token-profiles/latest/v1");
+  return (data ?? []).filter((t: any) => t.chainId === "solana");
 }
 
 export async function getTopSolanaPairs(): Promise<any[]> {
