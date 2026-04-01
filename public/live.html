@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PumpAgent Trenches</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#e0e0e0;font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:14px}
+a{color:#7c6ff7;text-decoration:none}
+
+/* Header */
+.header{padding:12px 20px;border-bottom:1px solid #1a1a2e;display:flex;align-items:center;justify-content:space-between}
+.header h1{font-size:1rem;font-weight:700;color:#7c6ff7}
+.header-stats{font-size:11px;color:#555}
+.header-stats span{margin-left:12px}
+
+/* Desktop: 3 columns */
+.columns{display:flex;height:calc(100vh - 49px);overflow:hidden}
+.column{flex:1;display:flex;flex-direction:column;border-right:1px solid #1a1a2e}
+.column:last-child{border-right:none}
+.col-header{padding:10px 14px;border-bottom:1px solid #1a1a2e;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.col-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.col-title.new-col{color:#f59e0b}
+.col-title.graduating-col{color:#7c6ff7}
+.col-title.graduated-col{color:#4ade80}
+.col-badge{font-size:10px;color:#666;background:#1a1a2e;padding:2px 8px;border-radius:8px}
+.col-stream{flex:1;overflow-y:auto;padding:8px}
+.col-stream::-webkit-scrollbar{width:4px}
+.col-stream::-webkit-scrollbar-thumb{background:#1a1a2e;border-radius:2px}
+
+/* Token cards */
+.card{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;border:1px solid #1a1a2e;margin-bottom:6px;cursor:pointer;transition:background .15s;animation:slideIn .2s ease}
+.card:hover{background:#1a1a2e}
+@keyframes slideIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes flash{0%{background:#7c6ff722}100%{background:transparent}}
+.card.new-entry{animation:flash .4s ease}
+
+.card-img{width:32px;height:32px;border-radius:50%;background:#1a1a2e;flex-shrink:0;object-fit:cover}
+.card-info{flex:1;min-width:0}
+.card-row{display:flex;align-items:center;gap:6px}
+.card-name{font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
+.card-symbol{font-size:10px;color:#888;font-weight:500}
+.card-age{font-size:10px;color:#666;margin-left:auto;flex-shrink:0}
+.card-metrics{display:flex;gap:8px;margin-top:2px;font-size:10px;color:#888}
+.mcap{color:#4ade80}
+.liq{color:#60a5fa}
+.curve{color:#f59e0b}
+
+/* Empty state */
+.empty{text-align:center;padding:2rem 1rem;color:#444;font-size:12px}
+
+/* Status bar */
+.status-bar{position:fixed;bottom:0;left:0;right:0;padding:4px 12px;background:#0a0a0f;border-top:1px solid #1a1a2e;font-size:10px;color:#555;display:flex;justify-content:space-between;z-index:10}
+.status-dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px}
+.status-dot.connected{background:#4ade80}
+.status-dot.disconnected{background:#ef4444}
+
+/* Mobile: tab switcher */
+.mobile-tabs{display:none;border-bottom:1px solid #1a1a2e}
+.mobile-tab{flex:1;padding:10px 4px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;color:#666;border-bottom:2px solid transparent;transition:all .15s}
+.mobile-tab:hover{color:#aaa}
+.mobile-tab.active{color:#7c6ff7;border-bottom-color:#7c6ff7}
+.mobile-tab .m-badge{display:inline-block;min-width:16px;padding:1px 4px;margin-left:3px;border-radius:8px;font-size:9px;background:#1a1a2e;color:#888}
+.mobile-tab.active .m-badge{background:#7c6ff722;color:#7c6ff7}
+
+/* Bottom Nav */
+.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;height:64px;background:#111;border-top:1px solid #222;z-index:1000;padding-bottom:env(safe-area-inset-bottom)}
+.bottom-nav-inner{display:flex;height:56px;align-items:center;justify-content:space-around}
+.bottom-nav a{display:flex;flex-direction:column;align-items:center;gap:2px;text-decoration:none;color:#666;font-size:10px;font-weight:600;transition:color .15s;flex:1}
+.bottom-nav a svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.5}
+.bottom-nav a.active{color:#4ade80}
+.bottom-nav a.active svg{stroke:#4ade80}
+
+@media(max-width:768px){
+  .columns{display:none}
+  .mobile-tabs{display:flex}
+  .mobile-view{display:block;height:calc(100vh - 90px - 64px);overflow-y:auto;padding:8px}
+  .mobile-view::-webkit-scrollbar{width:4px}
+  .mobile-view::-webkit-scrollbar-thumb{background:#1a1a2e;border-radius:2px}
+  .bottom-nav{display:block}
+  body{padding-bottom:64px}
+  /* Compact mobile cards */
+  .card{padding:8px;gap:8px;margin-bottom:4px}
+  .card-img{width:28px;height:28px}
+  .card-name{font-size:11px;max-width:100px}
+  .card-symbol{font-size:9px}
+  .card-age{font-size:9px}
+  .card-metrics{font-size:9px;gap:6px;margin-top:1px}
+}
+@media(min-width:769px){
+  .mobile-view{display:none !important}
+}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Trenches</h1>
+  <div class="header-stats">
+    <span><span class="status-dot disconnected" id="status-dot"></span><span id="status-text">Connecting...</span></span>
+    <span id="filter-count">Filtered: 0</span>
+  </div>
+</div>
+
+<!-- Mobile tabs -->
+<div class="mobile-tabs">
+  <div class="mobile-tab" data-tab="new">New <span class="m-badge" id="m-badge-new">0</span></div>
+  <div class="mobile-tab active" data-tab="graduating">Graduating <span class="m-badge" id="m-badge-graduating">0</span></div>
+  <div class="mobile-tab" data-tab="graduated">Graduated <span class="m-badge" id="m-badge-graduated">0</span></div>
+</div>
+<div class="mobile-view" id="mobile-stream"></div>
+
+<!-- Desktop columns -->
+<div class="columns">
+  <div class="column">
+    <div class="col-header">
+      <span class="col-title new-col">New</span>
+      <span class="col-badge" id="d-badge-new">0</span>
+    </div>
+    <div class="col-stream" id="col-new">
+      <div class="empty">Waiting for new tokens...</div>
+    </div>
+  </div>
+  <div class="column">
+    <div class="col-header">
+      <span class="col-title graduating-col">Graduating</span>
+      <span class="col-badge" id="d-badge-graduating">0</span>
+    </div>
+    <div class="col-stream" id="col-graduating">
+      <div class="empty">Waiting for graduating tokens...</div>
+    </div>
+  </div>
+  <div class="column">
+    <div class="col-header">
+      <span class="col-title graduated-col">Graduated</span>
+      <span class="col-badge" id="d-badge-graduated">0</span>
+    </div>
+    <div class="col-stream" id="col-graduated">
+      <div class="empty">Waiting for graduated tokens...</div>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom Navigation -->
+<nav class="bottom-nav">
+<div class="bottom-nav-inner">
+  <a href="/live" class="active">
+    <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+    <span>Trenches</span>
+  </a>
+  <a href="/swap">
+    <svg viewBox="0 0 24 24"><path d="M4 17h16M4 7h16M8 12h8"/><rect x="2" y="3" width="20" height="18" rx="2"/></svg>
+    <span>Terminal</span>
+  </a>
+  <a href="/pools">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+    <span>Pools</span>
+  </a>
+</div>
+</nav>
+
+<script>
+const API_BASE = window.location.origin;
+const MAX_CARDS = 80;
+
+// ── State ──
+const tokens = { new: [], graduating: [], graduated: [] };
+const seenMints = { new: new Set(), graduating: new Set(), graduated: new Set() };
+let ruggedMints = new Set();
+let filteredCount = 0;
+let mobileTab = 'graduating'; // Default mobile tab
+
+// ── Rugged mints ──
+async function loadRuggedMints() {
+  try {
+    const res = await fetch(`${API_BASE}/v1/rugged/mints`);
+    const data = await res.json();
+    ruggedMints = new Set(data.mints || []);
+  } catch (e) { console.warn('Failed to load rugged mints:', e); }
+}
+loadRuggedMints();
+setInterval(loadRuggedMints, 60000);
+
+// ── Dead token filter ──
+function isDeadToken(data) {
+  const token = data.token || data;
+  const pool = (data.pools || [])[0] || {};
+  const mint = token.mint || token.address || data.mint;
+
+  const liq = pool.liquidity?.usd ?? data.liquidity ?? null;
+  if (liq === null || liq === 0 || liq < 500) return true;
+
+  const vol = pool.volume?.usd ?? data.volume ?? data.volume24h ?? null;
+  if (vol === null || vol === 0) return true;
+
+  const mcap = pool.marketCap?.usd ?? data.marketCap ?? null;
+  if (mcap === null || mcap === 0) return true;
+
+  if (mint && ruggedMints.has(mint)) return true;
+
+  return false;
+}
+
+// ── Formatting ──
+function formatAge(createdTime) {
+  if (!createdTime) return '';
+  const ms = Date.now() - createdTime;
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h';
+  return Math.floor(h / 24) + 'd';
+}
+
+function formatNum(n) {
+  if (n == null || n === 0) return '-';
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
+  return '$' + n.toFixed(0);
+}
+
+// ── Card rendering ──
+function createCard(t, col) {
+  const token = t.token || t;
+  const pool = (t.pools || [])[0] || {};
+  const mint = token.mint || token.address || t.mint;
+  const name = token.name || t.name || 'Unknown';
+  const symbol = token.symbol || t.symbol || '???';
+  const image = token.image || t.image || '';
+  const mcap = pool.marketCap?.usd ?? t.marketCap ?? 0;
+  const liq = pool.liquidity?.usd ?? t.liquidity ?? 0;
+  const curve = pool.curvePercentage ?? t.curvePercentage ?? null;
+  const created = token.creation?.created_time ?? t.createdTime ?? 0;
+
+  const card = document.createElement('div');
+  card.className = 'card new-entry';
+  card.dataset.mint = mint;
+  card.onclick = () => { window.open(`${API_BASE}/swap?mint=${mint}`, '_self'); };
+
+  let metricsHtml = `<span class="mcap">${formatNum(mcap)}</span>`;
+  metricsHtml += `<span class="liq">${formatNum(liq)}</span>`;
+  if (curve !== null && col === 'graduating') {
+    metricsHtml += `<span class="curve">${curve.toFixed(0)}%</span>`;
+  }
+
+  card.innerHTML = `
+    ${image ? `<img class="card-img" src="${image}" alt="" onerror="this.style.display='none'">` : '<div class="card-img"></div>'}
+    <div class="card-info">
+      <div class="card-row">
+        <span class="card-name">${name}</span>
+        <span class="card-symbol">${symbol}</span>
+        <span class="card-age">${formatAge(created)}</span>
+      </div>
+      <div class="card-metrics">${metricsHtml}</div>
+    </div>`;
+  return card;
+}
+
+// ── Update badges ──
+function updateBadges(col) {
+  const count = tokens[col].length;
+  const dBadge = document.getElementById(`d-badge-${col}`);
+  const mBadge = document.getElementById(`m-badge-${col}`);
+  if (dBadge) dBadge.textContent = count;
+  if (mBadge) mBadge.textContent = count;
+}
+
+// ── DOM references ──
+const colEls = {
+  new: document.getElementById('col-new'),
+  graduating: document.getElementById('col-graduating'),
+  graduated: document.getElementById('col-graduated'),
+};
+const mobileStream = document.getElementById('mobile-stream');
+
+// ── Add token ──
+function addToken(col, data) {
+  const token = data.token || data;
+  const mint = token.mint || token.address || data.mint;
+  if (!mint) return;
+
+  // Dedup: update existing
+  if (seenMints[col].has(mint)) {
+    const idx = tokens[col].findIndex(t => (t.token?.mint || t.mint) === mint);
+    if (idx >= 0) tokens[col][idx] = data;
+    return;
+  }
+
+  // Filter dead tokens
+  if (isDeadToken(data)) {
+    filteredCount++;
+    document.getElementById('filter-count').textContent = `Filtered: ${filteredCount}`;
+    return;
+  }
+
+  seenMints[col].add(mint);
+  tokens[col].unshift(data);
+  if (tokens[col].length > MAX_CARDS) {
+    const removed = tokens[col].pop();
+    const rMint = removed.token?.mint || removed.mint;
+    seenMints[col].delete(rMint);
+  }
+
+  updateBadges(col);
+
+  // Desktop: prepend to column
+  const colEl = colEls[col];
+  if (colEl) {
+    const empty = colEl.querySelector('.empty');
+    if (empty) empty.remove();
+    const card = createCard(data, col);
+    colEl.prepend(card);
+    while (colEl.children.length > MAX_CARDS) colEl.lastChild.remove();
+  }
+
+  // Mobile: prepend if active tab
+  if (col === mobileTab) {
+    const card = createCard(data, col);
+    mobileStream.prepend(card);
+    while (mobileStream.children.length > MAX_CARDS) mobileStream.lastChild.remove();
+  }
+}
+
+// ── Mobile tab render ──
+function renderMobileTab() {
+  mobileStream.innerHTML = '';
+  const list = tokens[mobileTab];
+  if (!list.length) {
+    mobileStream.innerHTML = '<div class="empty">Waiting for tokens...</div>';
+    return;
+  }
+  for (const t of list) {
+    mobileStream.appendChild(createCard(t, mobileTab));
+  }
+}
+
+// ── Mobile tab switching ──
+document.querySelectorAll('.mobile-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelector('.mobile-tab.active').classList.remove('active');
+    tab.classList.add('active');
+    mobileTab = tab.dataset.tab;
+    renderMobileTab();
+  });
+});
+
+// ── SSE connections ──
+function connectSSE(col, url, eventName) {
+  const es = new EventSource(url);
+
+  es.addEventListener(eventName, (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      addToken(col, data);
+    } catch {}
+  });
+
+  es.onopen = () => {
+    document.getElementById('status-dot').className = 'status-dot connected';
+    document.getElementById('status-text').textContent = 'Live';
+  };
+  es.onerror = () => {
+    document.getElementById('status-dot').className = 'status-dot disconnected';
+    document.getElementById('status-text').textContent = 'Reconnecting...';
+  };
+  return es;
+}
+
+// ── Init ──
+connectSSE('new', `${API_BASE}/v1/stream/latest`, 'latest');
+connectSSE('graduating', `${API_BASE}/v1/stream/graduating`, 'graduating');
+connectSSE('graduated', `${API_BASE}/v1/stream/graduated`, 'graduated');
+</script>
+</body>
+</html>

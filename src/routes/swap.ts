@@ -4,7 +4,11 @@ import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("swap");
 
-const JUPITER_ULTRA_URL = "https://api.jup.ag/ultra/v1";
+// ── Swap V2 (upgraded from Ultra V1) ────────────────────────────────────
+const JUPITER_SWAP_V2_URL = "https://api.jup.ag/swap/v2";
+
+// Keep V1 as fallback
+const JUPITER_ULTRA_V1_URL = "https://api.jup.ag/ultra/v1";
 
 const PRIORITY_FEE_MAP = {
   low: 1_000,
@@ -24,6 +28,9 @@ interface SwapBody {
   userWallet: string;
   jito?: boolean;
   priorityLevel?: PriorityLevel;
+  jitoTipLamports?: number;
+  receiver?: string;
+  useV1?: boolean; // fallback to Ultra V1 if needed
 }
 
 const swapSchema = {
@@ -39,6 +46,9 @@ const swapSchema = {
       userWallet: { type: "string" },
       jito: { type: "boolean" },
       priorityLevel: { type: "string", enum: ["low", "medium", "high", "turbo"] },
+      jitoTipLamports: { type: "number" },
+      receiver: { type: "string" },
+      useV1: { type: "boolean" },
     },
   },
 };
@@ -51,7 +61,46 @@ function getSenderEndpoint(): string {
   return process.env.SENDER_ENDPOINT || "https://sender.helius-rpc.com/fast";
 }
 
-async function fetchJupiterOrder(
+// ── V2 order fetch with retry ───────────────────────────────────────────
+
+async function fetchSwapV2Order(
+  params: Record<string, string>,
+  apiKey: string,
+  maxRetries: number = 3,
+): Promise<{ data: any; retryCount: number }> {
+  let retryCount = 0;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const { data } = await axios.get(`${JUPITER_SWAP_V2_URL}/order`, {
+        params,
+        headers: { "x-api-key": apiKey },
+      });
+      return { data, retryCount };
+    } catch (err: any) {
+      const status = err.response?.status;
+      // Retry on 5xx and retryable error codes
+      if (status && status >= 500 && status < 600 && attempt < maxRetries) {
+        retryCount++;
+        const delay = Math.min(500 * 2 ** attempt + Math.random() * 200, 5000);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      if (status === 429 && attempt < maxRetries) {
+        retryCount++;
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw new Error("Max retries exceeded");
+}
+
+// ── V1 fallback ─────────────────────────────────────────────────────────
+
+async function fetchUltraV1Order(
   params: Record<string, any>,
   apiKey: string,
   maxRetries: number = 3,
@@ -60,7 +109,7 @@ async function fetchJupiterOrder(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const { data } = await axios.get(`${JUPITER_ULTRA_URL}/order`, {
+      const { data } = await axios.get(`${JUPITER_ULTRA_V1_URL}/order`, {
         params,
         headers: { "x-api-key": apiKey },
       });
@@ -77,6 +126,21 @@ async function fetchJupiterOrder(
   }
 
   throw new Error("Max retries exceeded");
+}
+
+// ── V2 managed execute ──────────────────────────────────────────────────
+
+async function executeSwapV2(
+  signedTransaction: string,
+  requestId: string,
+  apiKey: string,
+): Promise<{ data: any }> {
+  const { data } = await axios.post(
+    `${JUPITER_SWAP_V2_URL}/execute`,
+    { swapTransaction: signedTransaction, requestId },
+    { headers: { "Content-Type": "application/json", "x-api-key": apiKey } },
+  );
+  return { data };
 }
 
 async function simulateTransaction(
@@ -132,15 +196,17 @@ async function sendViaSender(
 }
 
 export async function swapRoutes(app: FastifyInstance) {
+  // ── POST /v1/swap — Build unsigned swap transaction (V2 primary, V1 fallback) ──
   app.post<{ Body: SwapBody }>("/v1/swap", { schema: swapSchema }, async (req, reply) => {
-    const referralAccount = process.env.REFERRAL_ACCOUNT;
+    const referralAccountUltra = process.env.REFERRAL_ACCOUNT;   // Ultra (V1)
+    const referralAccountSwap = process.env.REFERRAL_ACCOUNT_SWAP; // Swap + Trigger (V2)
     const jupiterApiKey = process.env.JUPITER_API_KEY;
     const heliusApiKey = process.env.HELIUS_API_KEY;
     const heliusRpcUrl = heliusApiKey
       ? getGatekeeperUrl(heliusApiKey)
       : process.env.HELIUS_RPC_URL;
 
-    if (!referralAccount) {
+    if (!referralAccountUltra && !referralAccountSwap) {
       return reply.status(500).send({ error: "REFERRAL_ACCOUNT not configured" });
     }
     if (!jupiterApiKey) {
@@ -159,12 +225,100 @@ export async function swapRoutes(app: FastifyInstance) {
       userWallet,
       jito = false,
       priorityLevel = "medium",
+      jitoTipLamports,
+      receiver,
+      useV1 = false,
     } = req.body;
 
     const PLATFORM_FEE_BPS = 50; // 0.5%
 
     try {
-      // Build order via Jupiter Ultra API
+      // ── V2 path (default) ──────────────────────────────────────────
+      if (!useV1) {
+        const referralAccount = referralAccountSwap ?? referralAccountUltra!;
+        const orderParams: Record<string, string> = {
+          inputMint,
+          outputMint,
+          amount: amount.toString(),
+          taker: userWallet,
+          referralFee: PLATFORM_FEE_BPS.toString(),
+          referralAccount,
+        };
+
+        if (slippage !== "auto") {
+          orderParams.slippageBps = slippage.toString();
+        }
+
+        // Priority fee
+        orderParams.priorityFeeLamports = PRIORITY_FEE_MAP[priorityLevel].toString();
+
+        // Jito MEV tip
+        if (jito && jitoTipLamports) {
+          orderParams.jitoTipLamports = jitoTipLamports.toString();
+        }
+
+        // Custom receiver
+        if (receiver) {
+          orderParams.receiver = receiver;
+        }
+
+        const { data, retryCount } = await fetchSwapV2Order(orderParams, jupiterApiKey);
+
+        if (data.error || data.errorCode) {
+          return reply.status(422).send({
+            error: data.error ?? data.errorMessage ?? "Jupiter V2 order failed",
+            errorCode: data.errorCode ?? null,
+            details: data,
+          });
+        }
+
+        if (!data.swapTransaction && !data.transaction) {
+          return reply.status(502).send({
+            error: "Jupiter V2 did not return a transaction",
+            details: data,
+          });
+        }
+
+        const txBase64 = data.swapTransaction ?? data.transaction;
+
+        // Simulate
+        const sim = await simulateTransaction(txBase64, heliusRpcUrl);
+        if (!sim.passed) {
+          return reply.status(422).send({
+            error: "Transaction simulation failed",
+            simulationError: sim.error,
+          });
+        }
+
+        return {
+          transaction: txBase64,
+          requestId: data.requestId ?? null,
+          inputMint,
+          outputMint,
+          inAmount: data.inAmount ?? amount.toString(),
+          outAmount: data.outAmount ?? null,
+          otherAmountThreshold: data.otherAmountThreshold ?? null,
+          slippageBps: data.slippageBps ?? (slippage === "auto" ? "auto" : slippage),
+          platformFee: {
+            bps: PLATFORM_FEE_BPS,
+            percent: "0.5%",
+            referralAccount,
+          },
+          jito,
+          jitoTipLamports: jitoTipLamports ?? 0,
+          senderEndpoint: getSenderEndpoint(),
+          pool,
+          priorityLevel,
+          retryCount,
+          simulationPassed: true,
+          apiVersion: "v2",
+          mode: data.mode ?? "ultra",
+          router: data.router ?? null,
+        };
+      }
+
+      // ── V1 fallback path (Ultra) ────────────────────────────────────
+      const referralAccount = referralAccountUltra ?? referralAccountSwap!;
       const orderPayload: Record<string, any> = {
         inputMint,
         outputMint,
@@ -181,7 +335,7 @@ export async function swapRoutes(app: FastifyInstance) {
         orderPayload.autoSlippage = true;
       }
 
-      const { data, retryCount } = await fetchJupiterOrder(orderPayload, jupiterApiKey);
+      const { data, retryCount } = await fetchUltraV1Order(orderPayload, jupiterApiKey);
 
       if (data.error || data.errorCode) {
         return reply.status(422).send({
@@ -198,7 +352,6 @@ export async function swapRoutes(app: FastifyInstance) {
         });
       }
 
-      // Simulate the transaction to ensure the swap is valid
       const baseSim = await simulateTransaction(data.transaction, heliusRpcUrl);
       if (!baseSim.passed) {
         return reply.status(422).send({
@@ -206,11 +359,6 @@ export async function swapRoutes(app: FastifyInstance) {
           simulationError: baseSim.error,
         });
       }
-
-      // Jito routing is handled automatically by Helius Sender endpoint
-      // No manual tip injection needed — Sender routes through Jito when
-      // submitted to https://sender.helius-rpc.com/fast
-      const jitoEnabled = jito;
 
       return {
         transaction: data.transaction,
@@ -227,13 +375,14 @@ export async function swapRoutes(app: FastifyInstance) {
           referralAccount,
         },
         jito,
-        jitoEnabled,
+        jitoEnabled: jito,
         tipLamports: 0,
         senderEndpoint: getSenderEndpoint(),
         pool,
         priorityLevel,
         retryCount,
         simulationPassed: true,
+        apiVersion: "v1",
       };
     } catch (err: any) {
       const status = err.response?.status ?? 502;
@@ -245,7 +394,51 @@ export async function swapRoutes(app: FastifyInstance) {
     }
   });
 
-  // POST /v1/swap/send — Submit signed transaction via Helius Sender
+  // ── POST /v1/swap/execute — V2 managed execution (Jupiter handles landing) ──
+  app.post<{ Body: { transaction: string; requestId?: string } }>(
+    "/v1/swap/execute",
+    async (req, reply) => {
+      const jupiterApiKey = process.env.JUPITER_API_KEY;
+      const { transaction, requestId } = req.body;
+
+      if (!transaction) {
+        return reply.status(400).send({ error: "transaction (base64) is required" });
+      }
+      if (!jupiterApiKey) {
+        return reply.status(500).send({ error: "JUPITER_API_KEY not configured" });
+      }
+
+      try {
+        const { data } = await executeSwapV2(transaction, requestId ?? "", jupiterApiKey);
+
+        if (data.error) {
+          const retryable = [-1, -1000, -1001, -1004, -2000, -2001, -2003, -2004].includes(data.code);
+          return reply.status(retryable ? 503 : 422).send({
+            error: data.error,
+            code: data.code ?? null,
+            retryable,
+            details: data,
+          });
+        }
+
+        log.info({ sig: data.txSignature ?? data.signature }, "Swap executed via Jupiter V2");
+        return {
+          signature: data.txSignature ?? data.signature ?? null,
+          status: data.status ?? "confirmed",
+          method: "jupiter_v2_execute",
+          details: data,
+        };
+      } catch (err: any) {
+        const status = err.response?.status ?? 502;
+        return reply.status(status).send({
+          error: "Jupiter V2 execute failed",
+          details: err.response?.data ?? err.message,
+        });
+      }
+    },
+  );
+
+  // ── POST /v1/swap/send — Submit signed transaction (Helius Sender + RPC fallback) ──
   app.post<{ Body: { transaction: string } }>(
     "/v1/swap/send",
     async (req, reply) => {

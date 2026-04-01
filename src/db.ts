@@ -47,6 +47,84 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_tg_mint ON telegram_sent(mint);
   CREATE INDEX IF NOT EXISTS idx_tg_sent ON telegram_sent(sent_at);
+
+  CREATE TABLE IF NOT EXISTS pumpswap_pools (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pool_address TEXT UNIQUE NOT NULL,
+    token_mint TEXT NOT NULL,
+    token_name TEXT,
+    token_symbol TEXT,
+    token_image TEXT,
+    twitter TEXT,
+    telegram TEXT,
+    website TEXT,
+    initial_liquidity_sol REAL,
+    initial_liquidity_usd REAL,
+    fee_tier REAL,
+    bin_step INTEGER,
+    created_at TEXT DEFAULT (datetime('now')),
+    risk_score INTEGER,
+    risk_tier TEXT,
+    kol_count INTEGER DEFAULT 0,
+    current_apr REAL,
+    current_volume_24h REAL,
+    current_tvl_usd REAL,
+    market_cap_usd REAL,
+    status TEXT DEFAULT 'active',
+    last_updated TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_ps_pool ON pumpswap_pools(pool_address);
+  CREATE INDEX IF NOT EXISTS idx_ps_risk ON pumpswap_pools(risk_score);
+  CREATE INDEX IF NOT EXISTS idx_ps_token ON pumpswap_pools(token_mint);
+  CREATE INDEX IF NOT EXISTS idx_ps_status ON pumpswap_pools(status);
+  CREATE INDEX IF NOT EXISTS idx_ps_created ON pumpswap_pools(created_at);
+
+  -- Rug tracking tables
+  CREATE TABLE IF NOT EXISTS rugged_pools (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pool_address TEXT UNIQUE,
+    token_mint TEXT,
+    token_name TEXT,
+    creator_wallet TEXT,
+    rug_time TEXT DEFAULT (datetime('now')),
+    liquidity_before REAL,
+    liquidity_after REAL,
+    volume_before REAL,
+    estimated_stolen_sol REAL,
+    detected_by TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_rp_pool ON rugged_pools(pool_address);
+  CREATE INDEX IF NOT EXISTS idx_rp_creator ON rugged_pools(creator_wallet);
+
+  CREATE TABLE IF NOT EXISTS rugged_creators (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    wallet_address TEXT UNIQUE,
+    first_rug_at TEXT DEFAULT (datetime('now')),
+    last_rug_at TEXT DEFAULT (datetime('now')),
+    total_rugs INTEGER DEFAULT 1,
+    total_stolen_sol REAL DEFAULT 0,
+    notes TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_rc_wallet ON rugged_creators(wallet_address);
 `);
+
+// Migrations: add columns if missing (idempotent)
+const migrations = [
+  "ALTER TABLE pumpswap_pools ADD COLUMN top_lp_pct REAL DEFAULT NULL",
+  "ALTER TABLE pumpswap_pools ADD COLUMN lp_provider_count INTEGER DEFAULT NULL",
+  "ALTER TABLE pumpswap_pools ADD COLUMN lp_locked INTEGER DEFAULT 0",
+  "ALTER TABLE pumpswap_pools ADD COLUMN creator_wallet TEXT DEFAULT NULL",
+  "ALTER TABLE pumpswap_pools ADD COLUMN risk_flags TEXT DEFAULT NULL",
+  "ALTER TABLE pumpswap_pools ADD COLUMN prev_tvl_usd REAL DEFAULT NULL",
+  "ALTER TABLE pumpswap_pools ADD COLUMN is_mayhem_mode INTEGER DEFAULT 0",
+  "ALTER TABLE pumpswap_pools ADD COLUMN onchain_creator TEXT DEFAULT NULL",
+];
+
+for (const sql of migrations) {
+  try { db.exec(sql); } catch { /* column already exists */ }
+}
 
 export default db;

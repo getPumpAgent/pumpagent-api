@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PumpAgent Pools</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#e0e0e0;font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:14px}
+a{color:#7c6ff7;text-decoration:none}
+
+.header{padding:12px 20px;border-bottom:1px solid #1a1a2e;display:flex;align-items:center;justify-content:space-between}
+.header h1{font-size:1rem;font-weight:700;color:#7c6ff7}
+
+.content{padding:2rem;text-align:center;color:#555}
+.content h2{color:#7c6ff7;margin-bottom:.5rem}
+
+/* Bottom Nav */
+.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;height:64px;background:#111;border-top:1px solid #222;z-index:1000;padding-bottom:env(safe-area-inset-bottom)}
+.bottom-nav-inner{display:flex;height:56px;align-items:center;justify-content:space-around}
+.bottom-nav a{display:flex;flex-direction:column;align-items:center;gap:2px;text-decoration:none;color:#666;font-size:10px;font-weight:600;transition:color .15s;flex:1}
+.bottom-nav a svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.5}
+.bottom-nav a.active{color:#4ade80}
+.bottom-nav a.active svg{stroke:#4ade80}
+@media(max-width:768px){
+  .bottom-nav{display:block}
+  body{padding-bottom:64px}
+}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Pools</h1>
+</div>
+<div class="content">
+  <h2>Pools</h2>
+  <p>Liquidity pool monitoring coming soon.</p>
+</div>
+
+<!-- Bottom Navigation -->
+<nav class="bottom-nav">
+<div class="bottom-nav-inner">
+  <a href="/live">
+    <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+    <span>Trenches</span>
+  </a>
+  <a href="/swap">
+    <svg viewBox="0 0 24 24"><path d="M4 17h16M4 7h16M8 12h8"/><rect x="2" y="3" width="20" height="18" rx="2"/></svg>
+    <span>Terminal</span>
+  </a>
+  <a href="/pools" class="active">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+    <span>Pools</span>
+  </a>
+</div>
+</nav>
+</body>
+</html>

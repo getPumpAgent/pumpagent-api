@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PumpAgent</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#e0e0e0;font-family:'Inter',system-ui,-apple-system,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2rem}
+a{color:#7c6ff7;text-decoration:none}
+
+.hero{max-width:420px}
+.logo{font-size:2.5rem;margin-bottom:.5rem}
+h1{font-size:1.8rem;font-weight:700;color:#7c6ff7;margin-bottom:.5rem}
+.tagline{color:#888;font-size:14px;margin-bottom:2rem}
+
+.cta{display:inline-block;padding:14px 32px;background:#4ade80;color:#0a0a0f;font-weight:700;font-size:16px;border-radius:10px;border:none;cursor:pointer;transition:background .15s;text-decoration:none;margin-bottom:1.5rem}
+.cta:hover{background:#22c55e}
+
+.wojak{font-size:6rem;margin-bottom:1rem;opacity:.7}
+
+.links{display:flex;gap:20px;justify-content:center;flex-wrap:wrap;margin-top:1rem}
+.links a{font-size:13px;color:#888;padding:8px 16px;border:1px solid #1a1a2e;border-radius:8px;transition:all .15s}
+.links a:hover{color:#e0e0e0;border-color:#333}
+
+@media(max-width:768px){
+  .hero{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- Desktop: normal homepage -->
+<div class="hero">
+  <div class="logo">🐸</div>
+  <h1>PumpAgent</h1>
+  <p class="tagline">Real-time Solana token intelligence. Snipe the trenches before everyone else.</p>
+  <a href="/live" class="cta">Enter the Trenches →</a>
+  <div class="wojak">😭</div>
+  <div class="links">
+    <a href="/live">Trenches</a>
+    <a href="/swap">Terminal</a>
+    <a href="/pools">Pools</a>
+  </div>
+</div>
+
+<script>
+// Mobile: instant redirect to trenches
+if (window.innerWidth <= 768) {
+  window.location.replace('/live');
+}
+</script>
+</body>
+</html>

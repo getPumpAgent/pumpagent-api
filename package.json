@@ -14,20 +14,36 @@
   "license": "ISC",
   "description": "PumpFun agent API - token discovery and swap building",
   "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
     "@fastify/cors": "^11.2.0",
+    "@fastify/static": "^9.0.0",
+    "@pump-fun/pump-sdk": "^1.32.0",
+    "@pump-fun/pump-swap-sdk": "^1.14.1",
+    "@solana-tracker/data-api": "^0.2.3",
+    "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",
+    "@types/bn.js": "^5.2.0",
     "axios": "^1.13.6",
     "better-sqlite3": "^12.8.0",
+    "bn.js": "^5.2.3",
+    "bs58": "^6.0.0",
+    "canvas": "^3.2.3",
     "dotenv": "^17.3.1",
     "fastify": "^5.8.4",
+    "node-cron": "^4.2.1",
     "node-telegram-bot-api": "^0.67.0",
     "pino": "^10.3.1",
-    "pino-pretty": "^13.1.3"
+    "pino-pretty": "^13.1.3",
+    "retail-design-system": "^1.0.0",
+    "twitter-api-v2": "^1.29.0",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.5.0",
+    "@types/node-cron": "^3.0.11",
     "@types/node-telegram-bot-api": "^0.64.14",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2"
   }

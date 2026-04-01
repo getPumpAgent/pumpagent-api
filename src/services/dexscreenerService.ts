@@ -104,6 +104,18 @@ export async function enrichTokenData(tokenAddress: string): Promise<{
   };
 }
 
+// Separate long-lived cache for pool address lookups (24h — pair addresses don't change)
+const poolAddressCache = new Map<string, CacheEntry>();
+function getCachedPool(mint: string): string | null {
+  const entry = poolAddressCache.get(mint);
+  if (entry && Date.now() < entry.expiry) return entry.data;
+  poolAddressCache.delete(mint);
+  return null;
+}
+function setCachedPool(mint: string, addr: string): void {
+  poolAddressCache.set(mint, { data: addr, expiry: Date.now() + 86_400_000 });
+}
+
 export async function getOhlcv(
   tokenAddress: string,
   interval: string = "1h"
@@ -114,15 +126,35 @@ export async function getOhlcv(
 
   const GECKO = "https://api.geckoterminal.com/api/v2";
 
-  // Step 1: Find the top pool for this token on Solana
-  const { data: poolsResp } = await axios.get(
-    `${GECKO}/networks/solana/tokens/${tokenAddress}/pools`,
-    { params: { page: 1 } },
-  );
-  const pools = poolsResp?.data ?? [];
-  if (!pools.length) return [];
+  // Step 1: Check pool address cache first (avoids redundant lookups)
+  let poolAddress: string | null = getCachedPool(tokenAddress);
 
-  const poolAddress = pools[0].attributes.address;
+  // Step 1a: Try DexScreener first (faster, more reliable for PumpSwap)
+  if (!poolAddress) {
+    try {
+      const { data: dexData } = await axios.get(
+        `https://api.dexscreener.com/tokens/v1/solana/${tokenAddress}`,
+        { timeout: 5000 },
+      );
+      const pairs = Array.isArray(dexData) ? dexData : dexData?.pairs ?? [];
+      if (pairs.length) poolAddress = pairs[0].pairAddress;
+    } catch {}
+  }
+
+  // Step 1b: Fall back to GeckoTerminal token lookup
+  if (!poolAddress) {
+    try {
+      const { data: poolsResp } = await axios.get(
+        `${GECKO}/networks/solana/tokens/${tokenAddress}/pools`,
+        { params: { page: 1 }, timeout: 5000 },
+      );
+      const pools = poolsResp?.data ?? [];
+      if (pools.length) poolAddress = pools[0].attributes.address;
+    } catch {}
+  }
+
+  if (!poolAddress) return [];
+  setCachedPool(tokenAddress, poolAddress);
 
   // Step 2: Map interval to GeckoTerminal timeframe
   const tfMap: Record<string, { timeframe: string; aggregate: number }> = {

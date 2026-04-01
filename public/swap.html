@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PumpAgent Terminal</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#e0e0e0;font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:14px}
+a{color:#7c6ff7;text-decoration:none}
+
+/* Layout */
+.app{display:flex;height:100vh;overflow:hidden}
+.sidebar{width:380px;border-right:1px solid #1a1a2e;display:flex;flex-direction:column;flex-shrink:0}
+.main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem}
+.main-placeholder{text-align:center;color:#555}
+.main-placeholder h2{font-size:1.4rem;margin-bottom:.5rem;color:#7c6ff7}
+
+/* Tabs */
+.tabs{display:flex;border-bottom:1px solid #1a1a2e;flex-shrink:0}
+.tab{flex:1;padding:10px 4px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;color:#666;border-bottom:2px solid transparent;transition:all .15s}
+.tab:hover{color:#aaa}
+.tab.active{color:#7c6ff7;border-bottom-color:#7c6ff7}
+.tab .badge{display:inline-block;min-width:18px;padding:1px 5px;margin-left:4px;border-radius:8px;font-size:10px;background:#1a1a2e;color:#888}
+.tab.active .badge{background:#7c6ff722;color:#7c6ff7}
+
+/* Stream container */
+.stream{flex:1;overflow-y:auto;padding:8px}
+.stream::-webkit-scrollbar{width:4px}
+.stream::-webkit-scrollbar-thumb{background:#1a1a2e;border-radius:2px}
+
+/* Token cards */
+.card{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;border:1px solid #1a1a2e;margin-bottom:6px;cursor:pointer;transition:background .15s;animation:slideIn .2s ease}
+.card:hover{background:#1a1a2e}
+.card.new-entry{animation:flash .4s ease}
+@keyframes slideIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes flash{0%{background:#7c6ff722}100%{background:transparent}}
+
+.card-img{width:36px;height:36px;border-radius:50%;background:#1a1a2e;flex-shrink:0;object-fit:cover}
+.card-info{flex:1;min-width:0}
+.card-row{display:flex;align-items:center;gap:6px}
+.card-name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px}
+.card-symbol{font-size:11px;color:#888;font-weight:500}
+.card-age{font-size:10px;color:#666;margin-left:auto;flex-shrink:0}
+.card-metrics{display:flex;gap:10px;margin-top:3px;font-size:11px;color:#888}
+.card-metrics span{display:flex;align-items:center;gap:3px}
+.metric-label{color:#555;font-size:10px}
+.mcap{color:#4ade80}
+.liq{color:#60a5fa}
+.curve{color:#f59e0b}
+
+/* Empty state */
+.empty{text-align:center;padding:3rem 1rem;color:#444}
+.empty svg{margin-bottom:8px}
+
+/* Status bar */
+.status-bar{padding:6px 12px;border-top:1px solid #1a1a2e;font-size:10px;color:#555;display:flex;justify-content:space-between}
+.status-dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px}
+.status-dot.connected{background:#4ade80}
+.status-dot.disconnected{background:#ef4444}
+
+/* Bottom Nav */
+.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;height:64px;background:#111;border-top:1px solid #222;z-index:1000;padding-bottom:env(safe-area-inset-bottom)}
+.bottom-nav-inner{display:flex;height:56px;align-items:center;justify-content:space-around}
+.bottom-nav a{display:flex;flex-direction:column;align-items:center;gap:2px;text-decoration:none;color:#666;font-size:10px;font-weight:600;transition:color .15s;flex:1}
+.bottom-nav a svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.5}
+.bottom-nav a.active{color:#4ade80}
+.bottom-nav a.active svg{stroke:#4ade80}
+
+/* Mobile */
+@media(max-width:768px){
+  .sidebar{width:100%;height:calc(100vh - 64px)}
+  .main{display:none}
+  .bottom-nav{display:block}
+  body{padding-bottom:64px}
+  /* Compact mobile cards */
+  .card{padding:8px;gap:8px;margin-bottom:4px}
+  .card-img{width:28px;height:28px}
+  .card-name{font-size:11px;max-width:100px}
+  .card-symbol{font-size:9px}
+  .card-age{font-size:9px}
+  .card-metrics{font-size:9px;gap:6px;margin-top:1px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="tabs">
+      <div class="tab" data-tab="new">New <span class="badge" id="badge-new">0</span></div>
+      <div class="tab" data-tab="graduating">Graduating <span class="badge" id="badge-graduating">0</span></div>
+      <div class="tab" data-tab="graduated">Graduated <span class="badge" id="badge-graduated">0</span></div>
+      <div class="tab active" data-tab="aipicks">AI Picks <span class="badge" id="badge-aipicks">0</span></div>
+    </div>
+    <div class="stream" id="stream">
+      <div class="empty" id="empty-state">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#444" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        <p>Connecting to stream...</p>
+      </div>
+    </div>
+    <div class="status-bar">
+      <span><span class="status-dot disconnected" id="status-dot"></span><span id="status-text">Disconnected</span></span>
+      <span id="filter-count">Filtered: 0</span>
+    </div>
+  </div>
+  <div class="main">
+    <div class="main-placeholder">
+      <h2>PumpAgent Terminal</h2>
+      <p>Select a token from the sidebar to trade</p>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom Navigation -->
+<nav class="bottom-nav">
+<div class="bottom-nav-inner">
+  <a href="/live">
+    <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+    <span>Trenches</span>
+  </a>
+  <a href="/swap" class="active">
+    <svg viewBox="0 0 24 24"><path d="M4 17h16M4 7h16M8 12h8"/><rect x="2" y="3" width="20" height="18" rx="2"/></svg>
+    <span>Terminal</span>
+  </a>
+  <a href="/pools">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+    <span>Pools</span>
+  </a>
+</div>
+</nav>
+
+<script>
+const API_BASE = window.location.origin;
+const STREAM_CONTAINER = document.getElementById('stream');
+const EMPTY_STATE = document.getElementById('empty-state');
+const STATUS_DOT = document.getElementById('status-dot');
+const STATUS_TEXT = document.getElementById('status-text');
+const FILTER_COUNT_EL = document.getElementById('filter-count');
+
+// ── State ──
+let activeTab = 'aipicks';
+const tokens = { new: [], graduating: [], graduated: [], aipicks: [] };
+const seenMints = { new: new Set(), graduating: new Set(), graduated: new Set(), aipicks: new Set() };
+let ruggedMints = new Set();
+let filteredCount = 0;
+const MAX_CARDS = 100;
+
+// ── SSE connections ──
+const sseConnections = {};
+
+// ── Rugged mints loader ──
+async function loadRuggedMints() {
+  try {
+    const res = await fetch(`${API_BASE}/v1/rugged/mints`);
+    const data = await res.json();
+    ruggedMints = new Set(data.mints || []);
+  } catch (e) { console.warn('Failed to load rugged mints:', e); }
+}
+loadRuggedMints();
+setInterval(loadRuggedMints, 60000);
+
+// ── Dead token filter ──
+function isDeadToken(data) {
+  const token = data.token || data;
+  const pool = (data.pools || [])[0] || {};
+  const mint = token.mint || token.address || data.mint;
+
+  const liq = pool.liquidity?.usd ?? data.liquidity ?? null;
+  if (liq === null || liq === 0 || liq < 500) return true;
+
+  const vol = pool.volume?.usd ?? data.volume ?? data.volume24h ?? null;
+  if (vol === null || vol === 0) return true;
+
+  const mcap = pool.marketCap?.usd ?? data.marketCap ?? null;
+  if (mcap === null || mcap === 0) return true;
+
+  if (mint && ruggedMints.has(mint)) return true;
+
+  return false;
+}
+
+// ── Age formatting ──
+function formatAge(createdTime) {
+  if (!createdTime) return '';
+  const ms = Date.now() - createdTime;
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h';
+  return Math.floor(h / 24) + 'd';
+}
+
+function formatNum(n) {
+  if (n == null || n === 0) return '-';
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
+  return '$' + n.toFixed(0);
+}
+
+// ── Card rendering ──
+function createCard(t, tab) {
+  const token = t.token || t;
+  const pool = (t.pools || [])[0] || {};
+  const mint = token.mint || token.address || t.mint;
+  const name = token.name || t.name || 'Unknown';
+  const symbol = token.symbol || t.symbol || '???';
+  const image = token.image || t.image || '';
+  const mcap = pool.marketCap?.usd ?? t.marketCap ?? 0;
+  const liq = pool.liquidity?.usd ?? t.liquidity ?? 0;
+  const curve = pool.curvePercentage ?? t.curvePercentage ?? null;
+  const created = token.creation?.created_time ?? t.createdTime ?? 0;
+
+  const card = document.createElement('div');
+  card.className = 'card new-entry';
+  card.dataset.mint = mint;
+  card.onclick = () => { window.open(`${API_BASE}/swap?mint=${mint}`, '_self'); };
+
+  let metricsHtml = `<span class="mcap">${formatNum(mcap)}</span>`;
+  metricsHtml += `<span class="liq">${formatNum(liq)}</span>`;
+  if (curve !== null && tab === 'graduating') {
+    metricsHtml += `<span class="curve">${curve.toFixed(0)}%</span>`;
+  }
+
+  card.innerHTML = `
+    ${image ? `<img class="card-img" src="${image}" alt="" onerror="this.style.display='none'">` : '<div class="card-img"></div>'}
+    <div class="card-info">
+      <div class="card-row">
+        <span class="card-name">${name}</span>
+        <span class="card-symbol">${symbol}</span>
+        <span class="card-age">${formatAge(created)}</span>
+      </div>
+      <div class="card-metrics">${metricsHtml}</div>
+    </div>`;
+  return card;
+}
+
+// ── Render active tab ──
+function render() {
+  const list = tokens[activeTab];
+  STREAM_CONTAINER.innerHTML = '';
+  if (!list.length) {
+    STREAM_CONTAINER.appendChild(EMPTY_STATE);
+    EMPTY_STATE.querySelector('p').textContent =
+      activeTab === 'aipicks' ? 'Loading AI picks...' : 'Waiting for tokens...';
+    return;
+  }
+  for (const t of list) {
+    STREAM_CONTAINER.appendChild(createCard(t, activeTab));
+  }
+}
+
+// ── Add token to tab (prepend, dedup, trim) ──
+function addToken(tab, data) {
+  const token = data.token || data;
+  const mint = token.mint || token.address || data.mint;
+  if (!mint) return;
+  if (seenMints[tab].has(mint)) {
+    // Update existing
+    const idx = tokens[tab].findIndex(t => (t.token?.mint || t.mint) === mint);
+    if (idx >= 0) tokens[tab][idx] = data;
+    if (activeTab === tab) render();
+    return;
+  }
+
+  if (isDeadToken(data)) { filteredCount++; FILTER_COUNT_EL.textContent = `Filtered: ${filteredCount}`; return; }
+
+  seenMints[tab].add(mint);
+  tokens[tab].unshift(data);
+  if (tokens[tab].length > MAX_CARDS) {
+    const removed = tokens[tab].pop();
+    const rMint = removed.token?.mint || removed.mint;
+    seenMints[tab].delete(rMint);
+  }
+
+  // Update badge
+  document.getElementById(`badge-${tab}`).textContent = tokens[tab].length;
+
+  if (activeTab === tab) {
+    // Prepend card to DOM directly for performance
+    if (STREAM_CONTAINER.contains(EMPTY_STATE)) STREAM_CONTAINER.innerHTML = '';
+    const card = createCard(data, tab);
+    STREAM_CONTAINER.prepend(card);
+    // Trim DOM
+    while (STREAM_CONTAINER.children.length > MAX_CARDS) {
+      STREAM_CONTAINER.lastChild.remove();
+    }
+  }
+}
+
+// ── SSE setup ──
+function connectSSE(tab, url, eventName) {
+  if (sseConnections[tab]) { sseConnections[tab].close(); }
+  const es = new EventSource(url);
+  sseConnections[tab] = es;
+
+  es.addEventListener(eventName, (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      addToken(tab, data);
+    } catch {}
+  });
+
+  es.onopen = () => updateStatus(true);
+  es.onerror = () => updateStatus(false);
+  return es;
+}
+
+function updateStatus(connected) {
+  STATUS_DOT.className = 'status-dot ' + (connected ? 'connected' : 'disconnected');
+  STATUS_TEXT.textContent = connected ? 'Live' : 'Reconnecting...';
+}
+
+// ── AI Picks loader ──
+async function loadAIPicks() {
+  const types = ['momentum', 'degen', 'smartmoney', 'graduating', 'hot'];
+  for (const type of types) {
+    try {
+      const res = await fetch(`${API_BASE}/v1/picks?type=${type}`);
+      const data = await res.json();
+      for (const t of (data.tokens || [])) {
+        addToken('aipicks', t);
+      }
+    } catch {}
+  }
+  document.getElementById('badge-aipicks').textContent = tokens.aipicks.length;
+}
+
+// ── Tab switching ──
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelector('.tab.active').classList.remove('active');
+    tab.classList.add('active');
+    activeTab = tab.dataset.tab;
+    render();
+  });
+});
+
+// ── Init ──
+connectSSE('new', `${API_BASE}/v1/stream/latest`, 'latest');
+connectSSE('graduating', `${API_BASE}/v1/stream/graduating`, 'graduating');
+connectSSE('graduated', `${API_BASE}/v1/stream/graduated`, 'graduated');
+loadAIPicks();
+setInterval(loadAIPicks, 300000); // Refresh AI picks every 5min
+render();
+</script>
+</body>
+</html>

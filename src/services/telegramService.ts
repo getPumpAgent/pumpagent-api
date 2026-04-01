@@ -164,14 +164,29 @@ async function enrichToken(signal: TokenSignal): Promise<TokenSignal> {
 
 function scoreSignal(s: TokenSignal): number {
   let score = 0;
+
+  // Positive signals
   if (s.isMomentum || s.isDegen) score += 30;
   if ((s.kolElite ?? 0) > 3) score += 20;
+  if ((s.kolElite ?? 0) > 1) score += 5;           // even 2-3 KOLs is mildly bullish
   if (s.isBoosted) score += 15;
   if ((s.riskScore ?? 100) < 30) score += 10;
   if (s.age != null && s.age < 300) score += 10;
   if ((s.volume24h ?? 0) > 50000) score += 10;
+  if ((s.volume24h ?? 0) > 200000) score += 10;    // extra credit for strong volume
+
+  // Multi-source bonus: token appeared in multiple feeds
+  let sources = 0;
+  if (s.isMomentum || s.isDegen) sources++;
+  if (s.isBoosted) sources++;
+  if ((s.kolElite ?? 0) > 0) sources++;
+  if (sources >= 2) score += 15;                    // convergence across sources
+
+  // Penalties
   if ((s.riskScore ?? 0) > 60) score -= 20;
   if (s.age != null && s.age > 1800) score -= 30;
+  if (s.marketCap == null && s.volume24h == null) score -= 15;  // no data = low confidence
+
   return score;
 }
 
@@ -300,7 +315,7 @@ export async function runSignalCycle(): Promise<{ checked: number; sent: boolean
   if (Date.now() - lastSentAt < MIN_INTERVAL_MS) {
     return { checked: 0, sent: false };
   }
-  if (countAlertsLastHour() >= 8) {
+  if (countAlertsLastHour() >= 5) {
     return { checked: 0, sent: false };
   }
 
@@ -343,9 +358,10 @@ export async function runSignalCycle(): Promise<{ checked: number; sent: boolean
   const toEnrich = candidates.slice(0, 8);
   await Promise.all(toEnrich.map(enrichToken));
 
-  // Score and sort
+  // Score and sort — require score >= 55 and minimum $5K mcap to cut noise
   const scored = toEnrich.map((s) => ({ signal: s, score: scoreSignal(s) }))
-    .filter((x) => x.score >= 40)
+    .filter((x) => x.score >= 55)
+    .filter((x) => (x.signal.marketCap ?? 0) >= 5000)
     .sort((a, b) => b.score - a.score);
 
   if (!scored.length) {
@@ -361,7 +377,7 @@ export async function runSignalCycle(): Promise<{ checked: number; sent: boolean
   setTimeout(async () => {
     // Re-check rate limits after delay
     if (Date.now() - lastSentAt < MIN_INTERVAL_MS) return;
-    if (countAlertsLastHour() >= 8) return;
+    if (countAlertsLastHour() >= 5) return;
     if (wasRecentlySent(best.signal.mint)) return;
 
     const success = await sendAlert(text);

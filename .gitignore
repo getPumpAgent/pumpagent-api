@@ -4,3 +4,10 @@ dist/
 data/*.db
 data/*.db-wal
 data/*.db-shm
+
+# Utility scripts with wallet data
+kol_wallets*.json
+kol_addresses.txt
+kol-farm.log
+farm-kol-wallets.cjs
+fetch-lore-kols.cjs

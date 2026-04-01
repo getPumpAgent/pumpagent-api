@@ -1,6 +1,14 @@
 import { FastifyInstance } from "fastify";
 import axios from "axios";
 import { createLogger } from "../utils/logger.js";
+import {
+  getMomentumPicks,
+  getGraduatingPicks,
+  getDegenPicks,
+  getSafePicks,
+  isConfigured as stConfigured,
+} from "../services/solanaTrackerService.js";
+import { getCached as hGet, setCache as hSet, TTL as hTTL, checkHeliusLimit } from "../utils/heliusCache.js";
 
 const log = createLogger("picks");
 
@@ -10,7 +18,7 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
-const CACHE_TTL = 30_000;
+const CACHE_TTL = 120_000; // 2 minutes
 
 function getCached(key: string): any | null {
   const entry = cache.get(key);
@@ -97,8 +105,9 @@ function normalizeGains(entry: any): any {
 }
 
 async function enrichWithMarketData(token: any): Promise<void> {
+  // Try DexScreener first (free, no key)
   try {
-    const { data } = await axios.get(`https://api.dexscreener.com/tokens/v1/solana/${token.mint}`);
+    const { data } = await axios.get(`https://api.dexscreener.com/tokens/v1/solana/${token.mint}`, { timeout: 8000 });
     const pairs = Array.isArray(data) ? data : data?.pairs ?? [];
     if (pairs.length) {
       const top = pairs[0];
@@ -107,9 +116,27 @@ async function enrichWithMarketData(token: any): Promise<void> {
       token.volume24h = top.volume?.h24 ?? null;
       token.liquidity = top.liquidity?.usd ?? null;
       token.priceChange24h = top.priceChange?.h24 ?? null;
+      if (top.baseToken?.name && !token.name) token.name = top.baseToken.name;
+      if (top.baseToken?.symbol) token.symbol = top.baseToken.symbol;
+      if (top.info?.imageUrl && !token.image) token.image = top.info.imageUrl;
     }
-  } catch {
-    // DexScreener may not have data for very new tokens
+  } catch {}
+
+  // Fallback: Solana Tracker cache
+  if (!token.price && token.mint) {
+    try {
+      const { getTokenInsights } = await import("../services/solanaTrackerService.js");
+      const st = await getTokenInsights(token.mint);
+      if (st && st.priceUsd > 0) {
+        token.price = token.price ?? st.priceUsd;
+        token.marketCap = token.marketCap ?? st.marketCapUsd;
+        token.volume24h = token.volume24h ?? st.volume_24h;
+        token.liquidity = token.liquidity ?? st.liquidityUsd;
+        if (st.name && !token.name) token.name = st.name;
+        if (st.symbol) token.symbol = st.symbol;
+        if (st.image && !token.image) token.image = st.image;
+      }
+    } catch {}
   }
 }
 
@@ -117,17 +144,37 @@ async function enrichWithImages(tokens: any[]): Promise<any[]> {
   const needImages = tokens.filter((t) => !t.image && t.mint);
   if (!needImages.length) return tokens;
 
+  // Check individual asset caches first
+  const uncachedMints: string[] = [];
+  for (const t of needImages) {
+    const hCached = hGet(`getAsset:${t.mint}`);
+    if (hCached) {
+      const img = hCached?.content?.links?.image ?? null;
+      if (img && img.startsWith("http")) t.image = img;
+    } else {
+      uncachedMints.push(t.mint);
+    }
+  }
+
+  // Only call Helius for truly uncached mints
+  if (!uncachedMints.length) return tokens;
   const rpcUrl = process.env.HELIUS_RPC_URL;
   if (!rpcUrl) return tokens;
 
   try {
-    const mints = needImages.map((t) => t.mint).slice(0, 30);
+    checkHeliusLimit();
+    const mints = uncachedMints.slice(0, 20); // limit batch size
     const { data } = await axios.post(rpcUrl, {
       jsonrpc: "2.0",
       id: "picks-images",
       method: "getAssetBatch",
       params: { ids: mints },
     });
+
+    for (const item of data.result ?? []) {
+      // Cache each asset individually for 24h
+      hSet(`getAsset:${item.id}`, item, hTTL.getAssetBatch);
+    }
 
     const assetMap = new Map<string, any>();
     for (const item of data.result ?? []) {
@@ -164,51 +211,102 @@ export async function picksRoutes(app: FastifyInstance) {
       let result: any;
 
       switch (type) {
+        // ── LORE PICKS (primary for Terminal sidebar) ──
         case "momentum": {
           const boxes = await fetchUpstream("/api/feature-boxes/current");
           const token = boxes?.Fastest;
           const item = normalizeFeatureBox(token, "momentum");
           if (item) await enrichWithMarketData(item);
-          result = { type: "momentum", tokens: item ? [item] : [] };
+          result = { type: "momentum", tokens: item ? [item] : [], source: "lore" };
           break;
         }
 
         case "degen": {
           const boxes = await fetchUpstream("/api/feature-boxes/current");
-          const token = boxes?.Gamble;
-          const item = normalizeFeatureBox(token, "degen");
-          if (item) await enrichWithMarketData(item);
-          result = { type: "degen", tokens: item ? [item] : [] };
+          const dToken = boxes?.Gamble;
+          const dItem = normalizeFeatureBox(dToken, "degen");
+          if (dItem) await enrichWithMarketData(dItem);
+          result = { type: "degen", tokens: dItem ? [dItem] : [], source: "lore" };
           break;
         }
 
         case "smartmoney": {
-          const data = await fetchUpstream("/api/market/kolscan");
-          const tokens = Array.isArray(data) ? data.slice(0, 20).map(normalizeKol) : [];
-          result = { type: "smartmoney", tokens };
+          const smData = await fetchUpstream("/api/market/kolscan");
+          const smTokens = Array.isArray(smData) ? smData.slice(0, 20).map(normalizeKol) : [];
+          result = { type: "smartmoney", tokens: smTokens, source: "lore" };
           break;
         }
 
         case "graduating": {
           const data = await fetchUpstream("/api/graduation", { status: "active", limit: 20 });
-          const tokens = (data?.data?.tokens ?? []).map(normalizeGrad);
-          result = { type: "graduating", tokens };
+          const gTokens = (data?.data?.tokens ?? []).map(normalizeGrad);
+          result = { type: "graduating", tokens: gTokens, source: "lore" };
           break;
         }
 
         case "hot": {
-          const data = await fetchUpstream("/api/feature-snapshots/gains");
-          const tokens = (data?.data ?? []).slice(0, 20).map(normalizeGains);
-          result = { type: "hot", tokens };
+          const hotData = await fetchUpstream("/api/feature-snapshots/gains");
+          const hotTokens = (hotData?.data ?? []).slice(0, 20).map(normalizeGains);
+          result = { type: "hot", tokens: hotTokens, source: "lore" };
+          break;
+        }
+
+        // ── NEW TABS (non-LORE sources) ──
+        case "trending": {
+          // Solana Tracker volume momentum — new angle, doesn't replace LORE
+          if (stConfigured()) {
+            try {
+              const tokens = await getMomentumPicks();
+              result = { type: "trending", tokens, source: "solanatracker" };
+              break;
+            } catch (e: any) {
+              log.warn({ err: e.message }, "Solana Tracker trending failed");
+            }
+          }
+          result = { type: "trending", tokens: [], source: "none" };
+          break;
+        }
+
+        case "boosted": {
+          // DexScreener boosted tokens — free, no key
+          try {
+            const { data: boostData } = await axios.get(
+              "https://api.dexscreener.com/token-boosts/latest/v1",
+              { timeout: 8000 }
+            );
+            const solTokens = (boostData || [])
+              .filter((t: any) => t.chainId === "solana")
+              .slice(0, 20)
+              .map((t: any) => ({
+                mint: t.tokenAddress,
+                name: t.description || t.tokenAddress?.slice(0, 8),
+                symbol: null,
+                image: t.icon ?? null,
+                boostAmount: t.totalAmount ?? 0,
+                url: t.url ?? null,
+              }));
+            // Enrich with DexScreener market data
+            for (const t of solTokens.slice(0, 10)) {
+              await enrichWithMarketData(t);
+            }
+            result = { type: "boosted", tokens: solTokens, source: "dexscreener" };
+          } catch (e: any) {
+            log.warn({ err: e.message }, "DexScreener boosted failed");
+            result = { type: "boosted", tokens: [], source: "none" };
+          }
           break;
         }
 
         default:
-          return reply.status(400).send({ error: `Unknown type: ${type}` });
+          return reply.status(400).send({ error: `Unknown type: ${type}. Valid: momentum|degen|smartmoney|graduating|hot|trending|boosted` });
       }
 
+      // ST enrichment removed — use /v1/tokens/{mint}/scan on-demand instead
+      // This saves ~40 ST API calls/minute
+
       result.tokens = await enrichWithImages(result.tokens);
-      setCache(cacheKey, result);
+      // Only cache non-empty results
+      if (result.tokens.length > 0) setCache(cacheKey, result);
       return result;
     } catch (err: any) {
       log.error({ err: err.message, type }, "Failed to fetch picks");
